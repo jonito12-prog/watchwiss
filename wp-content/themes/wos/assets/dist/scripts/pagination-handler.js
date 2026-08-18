@@ -1,11 +1,11 @@
 /**
  * pagination-handler.js — Client-Side Product Pagination Handler
- * Watches of Switzerland Static Site
+ * Watches of Switzerland Design System Compliant
  *
- * 20 products per page (matching watchswiss.com)
- * Instant client-side page switching with CSS !important
- * URL sync (?page=N)
- * Fully compliant pagination UI (1 2 3 4 5 6 ...)
+ * 20 products per page
+ * Exact WOS ellipsis rules (.show-ellipsis-before, .show-ellipsis-after, .show-desktop)
+ * Native black underline on .current
+ * Disabled light-grey arrows on boundaries
  */
 (function () {
     var PRODUCTS_PER_PAGE = 20;
@@ -49,10 +49,10 @@
     }
 
     function arrowL() {
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M11.722.717l-10.286 10 10.286 10"/><path d="M1.435 10.717h28"/></g></svg>';
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M11.722.717l-10.286 10 10.286 10"></path><path data-name="Line 726" d="M1.435 10.717h28"></path></g></svg>';
     }
     function arrowR() {
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M17.714.717l10.286 10-10.286 10"/><path d="M28 10.717H0"/></g></svg>';
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M17.714.717l10.286 10-10.286 10"></path><path data-name="Line 726" d="M28 10.717H0"></path></g></svg>';
     }
 
     function buildPaginationHTML(page) {
@@ -68,38 +68,11 @@
             html += '<li class="prev_page_link"><a class="page-link" href="' + href(page - 1) + '" data-page="' + (page - 1) + '"><i class="ico-arrow-left">' + arrowL() + '</i></a></li>';
         }
 
-        // Page Numbers: if <= 7 pages, show all (1 2 3 4 5 6 7)
-        var pages = [];
-        if (totalPages <= 7) {
-            for (var i = 1; i <= totalPages; i++) pages.push(i);
-        } else {
-            if (page <= 4) {
-                for (var i = 1; i <= 5; i++) pages.push(i);
-                pages.push('…');
-                pages.push(totalPages);
-            } else if (page >= totalPages - 3) {
-                pages.push(1);
-                pages.push('…');
-                for (var i = totalPages - 4; i <= totalPages; i++) pages.push(i);
-            } else {
-                pages.push(1);
-                pages.push('…');
-                pages.push(page - 1);
-                pages.push(page);
-                pages.push(page + 1);
-                pages.push('…');
-                pages.push(totalPages);
-            }
+        // All page list items
+        for (var p = 1; p <= totalPages; p++) {
+            var cls = (p === page) ? ' class="current"' : '';
+            html += '<li' + cls + '><a class="page-link" href="' + href(p) + '" data-page="' + p + '">' + p + '</a></li>';
         }
-
-        pages.forEach(function (p) {
-            if (p === '…') {
-                html += '<li><span style="padding:0 8px;line-height:1;font-size:16px;color:#272727;">…</span></li>';
-            } else {
-                var cls = (p === page) ? ' class="current"' : '';
-                html += '<li' + cls + '><a class="page-link" href="' + href(p) + '" data-page="' + p + '">' + p + '</a></li>';
-            }
-        });
 
         // Next Arrow
         if (page === totalPages) {
@@ -112,6 +85,65 @@
         return html;
     }
 
+    function applyWosEllipsisRules(shell) {
+        if (!shell) return;
+        var items = shell.querySelectorAll('li:not(.prev_page_link):not(.next_page_link)');
+        if (items.length === 0) return;
+
+        var isMobile = (window.innerWidth < 768);
+
+        if (isMobile) {
+            if (items.length === 1) {
+                items[0].classList.add('show-mobile');
+            } else {
+                var cur = shell.querySelector('li.current');
+                var last = items[items.length - 1];
+                if (cur) cur.classList.add('show-mobile');
+                if (last) {
+                    last.classList.add('show-mobile', 'show-mobile-of');
+                    if (last.classList.contains('current') && window.innerWidth < 767) {
+                        last.classList.remove('show-mobile-of');
+                        var a = last.querySelector('a');
+                        if (a) a.innerHTML = items.length + ' &nbsp; of &nbsp; ' + items.length;
+                    }
+                }
+            }
+        } else if (items.length <= 4) {
+            items.forEach(function (li) { li.classList.add('show-desktop'); });
+        } else {
+            // Find current item
+            var cur = shell.querySelector('li.current');
+            if (cur) {
+                cur.classList.add('show-desktop');
+                var prev = cur.previousElementSibling;
+                var next = cur.nextElementSibling;
+
+                if (prev && !prev.classList.contains('prev_page_link')) {
+                    var prevPrev = prev.previousElementSibling;
+                    if (prevPrev && prevPrev.classList.contains('prev_page_link')) {
+                        prev.classList.add('show-desktop');
+                    } else {
+                        prev.classList.add('show-ellipsis-before');
+                    }
+                }
+
+                if (next && !next.classList.contains('next_page_link')) {
+                    var nextNext = next.nextElementSibling;
+                    if (nextNext && nextNext.classList.contains('next_page_link')) {
+                        next.classList.add('show-desktop');
+                    } else {
+                        next.classList.add('show-ellipsis-after');
+                    }
+                }
+
+                var curPage = parseInt(cur.querySelector('a.page-link').getAttribute('data-page'), 10);
+                if (curPage === 1) {
+                    items[items.length - 1].classList.add('show-desktop');
+                }
+            }
+        }
+    }
+
     function renderPagination(page) {
         var shell = document.getElementById('product-grid-pagination-shell');
         if (shell) {
@@ -120,6 +152,7 @@
             } else {
                 shell.style.display = 'block';
                 shell.innerHTML = buildPaginationHTML(page);
+                applyWosEllipsisRules(shell);
             }
         }
         var tpl = document.getElementById('product-grid-pagination');
@@ -181,6 +214,13 @@
         currentPage = Math.min(Math.max(1, page), totalPages);
         applyPageCSS(currentPage);
         renderPagination(currentPage);
+    });
+
+    window.addEventListener('resize', function () {
+        var shell = document.getElementById('product-grid-pagination-shell');
+        if (shell && totalPages > 1) {
+            renderPagination(currentPage);
+        }
     });
 
     if (document.readyState === 'loading') {
