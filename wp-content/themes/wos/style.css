@@ -307,3 +307,6 @@ body.page-id-38875 .btn--mute{
 	display: none;
 }
 	
+
+/* Hide Instagram section */
+.module-homepage__instagram, #sb_instagram, .section-images.module-homepage__instagram { display: none !important; height: 0 !important; visibility: hidden !important; }
