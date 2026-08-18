@@ -1,8 +1,8 @@
 /**
  * pagination-early-guard.js
  * Must load in <head> BEFORE theme.min.js
- * Blocks admin-ajax.php XHR/fetch calls and intercepts page-link clicks
- * at capture phase before the theme can handle them.
+ * 1. Blocks admin-ajax.php XHR/fetch calls and intercepts page-link clicks
+ * 2. Automatic fallback for any broken image to live watchswiss.com CDN
  */
 (function () {
     /* ── Block XHR to admin-ajax.php (theme's product AJAX) ── */
@@ -54,5 +54,19 @@
             window._pgShowPage(page);
         }
     }, true /* capture */);
+
+    /* ── Automatic Image Fallback: if any image 404s, load from live CDN ── */
+    document.addEventListener('error', function (e) {
+        var target = e.target;
+        if (target && target.tagName === 'IMG') {
+            var src = target.getAttribute('src');
+            if (src && src.startsWith('/') && !target._triedWosFallback) {
+                target._triedWosFallback = true;
+                // Remove srcset so browser uses src fallback
+                target.removeAttribute('srcset');
+                target.src = 'https://www.watchswiss.com' + src;
+            }
+        }
+    }, true /* capture phase */);
 
 })();
