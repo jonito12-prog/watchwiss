@@ -1,25 +1,45 @@
 /**
  * Client-Side Product Pagination Handler for Watches of Switzerland
- * Divides available brand & catalog products into interactive pages (6 products per page)
+ * Divides brand listing products into interactive pages (18 products per page)
  */
 (function() {
     function initProductPagination() {
-        const gridHolder = document.querySelector('.section-items .grid, .section-products .grid, #product-grid');
-        if (!gridHolder) return;
+        // Find only pure product columns (NOT news/article tiles)
+        const allCols = document.querySelectorAll('.section-items .grid > .grid__col, .section-products .grid > .grid__col');
+        if (allCols.length === 0) return;
 
-        // Find all product columns
-        const productCols = gridHolder.querySelectorAll('.grid__col:has(.product), .grid__col[data-columnize="no"]');
-        if (productCols.length === 0) return;
+        // Separate product columns from news/article tiles
+        const productCols = [];
+        const newsCols = [];
+        allCols.forEach(function(col) {
+            if (col.getAttribute('data-type') === 'news' || col.querySelector('.tile')) {
+                newsCols.push(col);
+            } else if (col.querySelector('.product') && col.getAttribute('data-columnize') === 'no') {
+                productCols.push(col);
+            }
+        });
 
-        const PRODUCTS_PER_PAGE = 6;
+        if (productCols.length <= 0) return;
+
+        // Hide all news/article tiles immediately (they're editorial blocks not products)
+        newsCols.forEach(function(col) { col.style.display = 'none'; });
+
+        const PRODUCTS_PER_PAGE = 18;
         const totalProducts = productCols.length;
         const totalPages = Math.ceil(totalProducts / PRODUCTS_PER_PAGE);
 
-        // If only 1 page, hide pagination
-        const paginationContainer = document.querySelector('#product-grid-pagination-shell, .pagination');
-        if (totalPages <= 1) {
-            if (paginationContainer) paginationContainer.style.display = 'none';
-            productCols.forEach(col => col.style.display = '');
+        const paginationShell = document.getElementById('product-grid-pagination-shell');
+        const paginationDetails = document.getElementById('product-grid-details');
+
+        // Update the product count display
+        if (paginationDetails) {
+            paginationDetails.setAttribute('data-product-count', totalProducts);
+            paginationDetails.setAttribute('data-page-count', totalPages);
+        }
+
+        if (totalPages <= 1 && paginationShell) {
+            paginationShell.style.display = 'none';
+            productCols.forEach(function(col) { col.style.display = ''; });
             return;
         }
 
@@ -30,49 +50,75 @@
             const start = (page - 1) * PRODUCTS_PER_PAGE;
             const end = start + PRODUCTS_PER_PAGE;
 
-            productCols.forEach((col, idx) => {
-                if (idx >= start && idx < end) {
-                    col.style.display = '';
-                    col.style.opacity = '1';
-                } else {
-                    col.style.display = 'none';
-                }
+            productCols.forEach(function(col, idx) {
+                col.style.display = (idx >= start && idx < end) ? '' : 'none';
             });
 
             renderPagination();
         }
 
+        function buildArrowSvgLeft() {
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M11.722.717l-10.286 10 10.286 10"/><path data-name="Line 726" d="M1.435 10.717h28"/></g></svg>';
+        }
+        function buildArrowSvgRight() {
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M17.714.717l10.286 10-10.286 10"/><path data-name="Line 726" d="M28 10.717H0"/></g></svg>';
+        }
+
+        function buildPageNumbers() {
+            // Show at most: first, ..., current-1, current, current+1, ..., last
+            const pages = [];
+            if (totalPages <= 7) {
+                for (let i = 1; i <= totalPages; i++) pages.push(i);
+            } else {
+                pages.push(1);
+                if (currentPage > 3) pages.push('...');
+                for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                    pages.push(i);
+                }
+                if (currentPage < totalPages - 2) pages.push('...');
+                pages.push(totalPages);
+            }
+            return pages;
+        }
+
         function renderPagination() {
-            if (!paginationContainer) return;
-            paginationContainer.style.display = 'block';
+            if (!paginationShell) return;
+            paginationShell.style.display = 'block';
 
             let html = '<ul>';
 
-            // Prev button
-            const prevDisabled = currentPage === 1 ? ' disabled' : '';
-            html += `<li class="prev_page_link${prevDisabled}"><a class="page-link" href="#" data-page="${currentPage - 1}"><i class="ico-arrow-left"><svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M11.722.717l-10.286 10 10.286 10"/><path data-name="Line 726" d="M1.435 10.717h28"/></g></svg></i></a></li>`;
+            // Prev
+            const prevClass = currentPage === 1 ? ' class="prev_page_link disabled"' : ' class="prev_page_link"';
+            html += `<li${prevClass}><a class="page-link" href="#" data-page="${currentPage - 1}"><i class="ico-arrow-left">${buildArrowSvgLeft()}</i></a></li>`;
 
             // Page numbers
-            for (let i = 1; i <= totalPages; i++) {
-                const activeClass = i === currentPage ? ' class="current"' : '';
-                html += `<li${activeClass}><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
-            }
+            const pages = buildPageNumbers();
+            pages.forEach(function(p) {
+                if (p === '...') {
+                    html += '<li class="dots"><span>…</span></li>';
+                } else {
+                    const activeClass = p === currentPage ? ' class="current"' : '';
+                    html += `<li${activeClass}><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
+                }
+            });
 
-            // Next button
-            const nextDisabled = currentPage === totalPages ? ' disabled' : '';
-            html += `<li class="next_page_link${nextDisabled}"><a class="page-link" href="#" data-page="${currentPage + 1}"><i class="ico-arrow-right"><svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M17.714.717l10.286 10-10.286 10"/><path data-name="Line 726" d="M28 10.717H0"/></g></svg></i></a></li>`;
+            // Next
+            const nextClass = currentPage === totalPages ? ' class="next_page_link disabled"' : ' class="next_page_link"';
+            html += `<li${nextClass}><a class="page-link" href="#" data-page="${currentPage + 1}"><i class="ico-arrow-right">${buildArrowSvgRight()}</i></a></li>`;
 
             html += '</ul>';
-            paginationContainer.innerHTML = html;
+            paginationShell.innerHTML = html;
 
             // Attach click events
-            paginationContainer.querySelectorAll('.page-link').forEach(link => {
+            paginationShell.querySelectorAll('.page-link').forEach(function(link) {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
                     const targetPage = parseInt(this.getAttribute('data-page'), 10);
-                    if (targetPage >= 1 && targetPage <= totalPages && targetPage !== currentPage) {
+                    if (!isNaN(targetPage) && targetPage >= 1 && targetPage <= totalPages && targetPage !== currentPage) {
                         showPage(targetPage);
-                        gridHolder.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // Scroll smoothly to product grid
+                        const sectionEl = document.querySelector('.section-items, .section-products');
+                        if (sectionEl) sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 });
             });
