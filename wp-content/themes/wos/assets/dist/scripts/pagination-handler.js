@@ -1,17 +1,55 @@
 /**
- * Client-Side Product Pagination Handler for Watches of Switzerland
- * Reads ?page=N from URL, shows correct products, updates URL on navigation
+ * Product Pagination Handler — Watches of Switzerland Static Site
+ *
+ * Strategy:
+ * 1. Intercept ALL .page-link clicks in capture phase (before theme.min.js handlers)
+ * 2. Stub out the theme's AJAX product-loading so it can't clear the grid
+ * 3. Fix pagination link hrefs to point to current domain
+ * 4. Read ?page=N from URL → show the correct slice of products
  */
-(function() {
+(function () {
+    /* ─── 1. Stub theme AJAX so it never clears the product grid ─── */
+    function stubThemeAjax() {
+        // Stub jQuery ajax to block product-grid requests
+        if (window.jQuery) {
+            var origAjax = jQuery.ajax.bind(jQuery);
+            jQuery.ajax = function (url, settings) {
+                var opts = (typeof url === 'object') ? url : (settings || {});
+                var reqUrl = opts.url || (typeof url === 'string' ? url : '');
+                if (reqUrl && (reqUrl.indexOf('admin-ajax') !== -1 || reqUrl.indexOf('filter_products') !== -1)) {
+                    // Return a fake deferred that does nothing
+                    var fakeDeferred = {
+                        done: function () { return fakeDeferred; },
+                        fail: function () { return fakeDeferred; },
+                        always: function () { return fakeDeferred; },
+                        then: function () { return fakeDeferred; }
+                    };
+                    return fakeDeferred;
+                }
+                return origAjax(url, settings);
+            };
+        }
+
+        // Also stub global ajaxurl fetching for product grids
+        window._productGridAjaxBlocked = true;
+    }
+
+    /* ─── 2. Core pagination logic ─── */
+    var PRODUCTS_PER_PAGE = 18;
+    var productCols = [];
+    var totalProducts = 0;
+    var totalPages = 1;
+    var currentPage = 1;
+
     function getPageFromUrl() {
-        const params = new URLSearchParams(window.location.search);
-        const p = parseInt(params.get('page'), 10);
+        var params = new URLSearchParams(window.location.search);
+        var p = parseInt(params.get('page'), 10);
         return (!isNaN(p) && p >= 1) ? p : 1;
     }
 
     function setPageInUrl(page) {
-        const url = new URL(window.location.href);
-        if (page === 1) {
+        var url = new URL(window.location.href);
+        if (page <= 1) {
             url.searchParams.delete('page');
         } else {
             url.searchParams.set('page', page);
@@ -19,141 +57,156 @@
         history.pushState({ page: page }, '', url.toString());
     }
 
-    function initProductPagination() {
-        // Find only pure product columns (NOT news/article tiles)
-        const allCols = document.querySelectorAll('.section-items .grid > .grid__col, .section-products .grid > .grid__col');
-        if (allCols.length === 0) return;
+    function showPage(page) {
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        currentPage = page;
 
-        const productCols = [];
-        allCols.forEach(function(col) {
+        var start = (page - 1) * PRODUCTS_PER_PAGE;
+        var end = start + PRODUCTS_PER_PAGE;
+
+        productCols.forEach(function (col, idx) {
+            col.style.display = (idx >= start && idx < end) ? '' : 'none';
+        });
+
+        updatePaginationUI();
+    }
+
+    function updatePaginationUI() {
+        // Update both pagination containers (hidden template + visible shell)
+        ['product-grid-pagination', 'product-grid-pagination-shell'].forEach(function (id) {
+            var shell = document.getElementById(id);
+            if (!shell) return;
+
+            var links = shell.querySelectorAll('a.page-link[data-page]');
+            links.forEach(function (link) {
+                var p = parseInt(link.getAttribute('data-page'), 10);
+                var li = link.parentElement;
+                if (!li) return;
+
+                // Remove current class
+                li.classList.remove('current');
+
+                // Add current class to active page
+                if (p === currentPage) {
+                    li.classList.add('current');
+                }
+
+                // Fix prev/next disabled states
+                if (li.classList.contains('prev_page_link') || li.classList.contains('next_page_link')) {
+                    if (p < 1 || p > totalPages) {
+                        li.classList.add('disabled');
+                    } else {
+                        li.classList.remove('disabled');
+                    }
+                }
+            });
+        });
+    }
+
+    function fixPaginationHrefs() {
+        // Fix all page-link hrefs to point to current site (not original watchswiss.com)
+        var baseUrl = window.location.pathname; // e.g. /brands/hublot/
+        document.querySelectorAll('a.page-link[data-page]').forEach(function (link) {
+            var p = parseInt(link.getAttribute('data-page'), 10);
+            if (!isNaN(p) && p >= 1) {
+                link.href = (p === 1) ? baseUrl : (baseUrl + '?page=' + p);
+            }
+        });
+    }
+
+    function collectProducts() {
+        // Collect only real product columns, hide news/article tiles
+        var allCols = document.querySelectorAll(
+            '.section-items .grid > .grid__col, ' +
+            '.section-products .grid > .grid__col, ' +
+            '#product-grid .grid > .grid__col'
+        );
+
+        productCols = [];
+        allCols.forEach(function (col) {
             if (col.getAttribute('data-type') === 'news' || col.querySelector('.tile')) {
-                col.style.display = 'none'; // hide editorial blocks
-            } else if (col.querySelector('.product') && col.getAttribute('data-columnize') === 'no') {
+                col.style.display = 'none';
+            } else if (col.getAttribute('data-columnize') === 'no' && col.querySelector('.product')) {
                 productCols.push(col);
             }
         });
 
-        if (productCols.length === 0) return;
+        totalProducts = productCols.length;
+        totalPages = Math.ceil(totalProducts / PRODUCTS_PER_PAGE) || 1;
 
-        const PRODUCTS_PER_PAGE = 18;
-        const totalProducts = productCols.length;
-        const totalPages = Math.ceil(totalProducts / PRODUCTS_PER_PAGE);
-
-        const paginationShell = document.getElementById('product-grid-pagination-shell');
-        const paginationDetails = document.getElementById('product-grid-details');
-
-        if (paginationDetails) {
-            paginationDetails.setAttribute('data-product-count', totalProducts);
-            paginationDetails.setAttribute('data-page-count', totalPages);
+        // Update product-grid-details so theme reads correct values
+        var details = document.getElementById('product-grid-details');
+        if (details) {
+            details.setAttribute('data-product-count', totalProducts);
+            details.setAttribute('data-page-count', totalPages);
         }
 
-        if (totalPages <= 1) {
-            productCols.forEach(function(col) { col.style.display = ''; });
-            if (paginationShell) paginationShell.style.display = 'none';
-            return;
+        // Update visible product count text
+        var countEl = document.getElementById('product-count');
+        if (countEl && totalProducts > 0) {
+            countEl.textContent = totalProducts + ' products';
         }
+    }
 
-        // Read page from URL
-        let currentPage = getPageFromUrl();
+    /* ─── 3. Global click interceptor (capture phase = fires before theme handlers) ─── */
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a.page-link[data-page]');
+        if (!link) return;
+
+        // Only intercept pagination links (not product card links)
+        var container = link.closest('#product-grid-pagination, #product-grid-pagination-shell, .pagination');
+        if (!container) return;
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        var targetPage = parseInt(link.getAttribute('data-page'), 10);
+        if (isNaN(targetPage) || targetPage < 1 || targetPage > totalPages) return;
+        if (targetPage === currentPage) return;
+
+        setPageInUrl(targetPage);
+        showPage(targetPage);
+
+        // Scroll to top of section
+        var section = document.querySelector('.section-items, .section-products, #product-grid');
+        if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, true); // ← capture phase
+
+    /* ─── 4. Browser back/forward ─── */
+    window.addEventListener('popstate', function (e) {
+        var page = (e.state && e.state.page) ? e.state.page : getPageFromUrl();
+        showPage(Math.min(Math.max(1, page), totalPages));
+    });
+
+    /* ─── 5. Init ─── */
+    function init() {
+        stubThemeAjax();
+        collectProducts();
+
+        if (totalProducts === 0) return; // not a brand/product listing page
+
+        fixPaginationHrefs();
+
+        currentPage = getPageFromUrl();
         if (currentPage > totalPages) currentPage = 1;
 
-        function showPage(page) {
-            currentPage = page;
-            const start = (page - 1) * PRODUCTS_PER_PAGE;
-            const end = start + PRODUCTS_PER_PAGE;
-
-            productCols.forEach(function(col, idx) {
-                col.style.display = (idx >= start && idx < end) ? '' : 'none';
-            });
-
-            renderPagination();
-        }
-
-        function buildPageNumbers() {
-            const pages = [];
-            if (totalPages <= 7) {
-                for (let i = 1; i <= totalPages; i++) pages.push(i);
-            } else {
-                pages.push(1);
-                if (currentPage > 3) pages.push('...');
-                for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
-                    pages.push(i);
-                }
-                if (currentPage < totalPages - 2) pages.push('...');
-                pages.push(totalPages);
-            }
-            return pages;
-        }
-
-        function arrowLeft() {
-            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M11.722.717l-10.286 10 10.286 10"/><path d="M1.435 10.717h28"/></g></svg>';
-        }
-        function arrowRight() {
-            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M17.714.717l10.286 10-10.286 10"/><path d="M28 10.717H0"/></g></svg>';
-        }
-
-        function renderPagination() {
-            if (!paginationShell) return;
-            paginationShell.style.display = 'block';
-
-            let html = '<ul>';
-
-            // Prev
-            if (currentPage === 1) {
-                html += `<li class="prev_page_link disabled"><a class="page-link" href="#"><i class="ico-arrow-left">${arrowLeft()}</i></a></li>`;
-            } else {
-                html += `<li class="prev_page_link"><a class="page-link" href="#" data-page="${currentPage - 1}"><i class="ico-arrow-left">${arrowLeft()}</i></a></li>`;
-            }
-
-            // Page numbers
-            buildPageNumbers().forEach(function(p) {
-                if (p === '...') {
-                    html += '<li><span style="padding:0 6px">…</span></li>';
-                } else {
-                    const isCurrent = p === currentPage;
-                    html += `<li class="${isCurrent ? 'current' : ''}"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
-                }
-            });
-
-            // Next
-            if (currentPage === totalPages) {
-                html += `<li class="next_page_link disabled"><a class="page-link" href="#"><i class="ico-arrow-right">${arrowRight()}</i></a></li>`;
-            } else {
-                html += `<li class="next_page_link"><a class="page-link" href="#" data-page="${currentPage + 1}"><i class="ico-arrow-right">${arrowRight()}</i></a></li>`;
-            }
-
-            html += '</ul>';
-            paginationShell.innerHTML = html;
-
-            // Attach click events
-            paginationShell.querySelectorAll('a.page-link[data-page]').forEach(function(link) {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const targetPage = parseInt(this.getAttribute('data-page'), 10);
-                    if (!isNaN(targetPage) && targetPage >= 1 && targetPage <= totalPages && targetPage !== currentPage) {
-                        setPageInUrl(targetPage);
-                        showPage(targetPage);
-                        // Scroll to top of product grid
-                        const section = document.querySelector('.section-items, .section-products');
-                        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                });
-            });
-        }
-
-        // Handle browser back/forward buttons
-        window.addEventListener('popstate', function(e) {
-            const page = (e.state && e.state.page) ? e.state.page : getPageFromUrl();
-            showPage(Math.min(Math.max(1, page), totalPages));
-        });
-
-        // Show the page from URL on load
         showPage(currentPage);
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initProductPagination);
+        document.addEventListener('DOMContentLoaded', init);
     } else {
-        initProductPagination();
+        init();
     }
+
+    // Also run after jQuery/theme finishes loading (they may overwrite things)
+    window.addEventListener('load', function () {
+        stubThemeAjax();
+        fixPaginationHrefs();
+        showPage(currentPage);
+    });
+
 })();
