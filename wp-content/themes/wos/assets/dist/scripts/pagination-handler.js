@@ -1,28 +1,39 @@
 /**
  * Client-Side Product Pagination Handler for Watches of Switzerland
- * Divides brand listing products into interactive pages (18 products per page)
+ * Reads ?page=N from URL, shows correct products, updates URL on navigation
  */
 (function() {
+    function getPageFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const p = parseInt(params.get('page'), 10);
+        return (!isNaN(p) && p >= 1) ? p : 1;
+    }
+
+    function setPageInUrl(page) {
+        const url = new URL(window.location.href);
+        if (page === 1) {
+            url.searchParams.delete('page');
+        } else {
+            url.searchParams.set('page', page);
+        }
+        history.pushState({ page: page }, '', url.toString());
+    }
+
     function initProductPagination() {
         // Find only pure product columns (NOT news/article tiles)
         const allCols = document.querySelectorAll('.section-items .grid > .grid__col, .section-products .grid > .grid__col');
         if (allCols.length === 0) return;
 
-        // Separate product columns from news/article tiles
         const productCols = [];
-        const newsCols = [];
         allCols.forEach(function(col) {
             if (col.getAttribute('data-type') === 'news' || col.querySelector('.tile')) {
-                newsCols.push(col);
+                col.style.display = 'none'; // hide editorial blocks
             } else if (col.querySelector('.product') && col.getAttribute('data-columnize') === 'no') {
                 productCols.push(col);
             }
         });
 
-        if (productCols.length <= 0) return;
-
-        // Hide all news/article tiles immediately (they're editorial blocks not products)
-        newsCols.forEach(function(col) { col.style.display = 'none'; });
+        if (productCols.length === 0) return;
 
         const PRODUCTS_PER_PAGE = 18;
         const totalProducts = productCols.length;
@@ -31,19 +42,20 @@
         const paginationShell = document.getElementById('product-grid-pagination-shell');
         const paginationDetails = document.getElementById('product-grid-details');
 
-        // Update the product count display
         if (paginationDetails) {
             paginationDetails.setAttribute('data-product-count', totalProducts);
             paginationDetails.setAttribute('data-page-count', totalPages);
         }
 
-        if (totalPages <= 1 && paginationShell) {
-            paginationShell.style.display = 'none';
+        if (totalPages <= 1) {
             productCols.forEach(function(col) { col.style.display = ''; });
+            if (paginationShell) paginationShell.style.display = 'none';
             return;
         }
 
-        let currentPage = 1;
+        // Read page from URL
+        let currentPage = getPageFromUrl();
+        if (currentPage > totalPages) currentPage = 1;
 
         function showPage(page) {
             currentPage = page;
@@ -57,15 +69,7 @@
             renderPagination();
         }
 
-        function buildArrowSvgLeft() {
-            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M11.722.717l-10.286 10 10.286 10"/><path data-name="Line 726" d="M1.435 10.717h28"/></g></svg>';
-        }
-        function buildArrowSvgRight() {
-            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g data-name="Group 5242" fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path data-name="Path 5371" d="M17.714.717l10.286 10-10.286 10"/><path data-name="Line 726" d="M28 10.717H0"/></g></svg>';
-        }
-
         function buildPageNumbers() {
-            // Show at most: first, ..., current-1, current, current+1, ..., last
             const pages = [];
             if (totalPages <= 7) {
                 for (let i = 1; i <= totalPages; i++) pages.push(i);
@@ -81,6 +85,13 @@
             return pages;
         }
 
+        function arrowLeft() {
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M11.722.717l-10.286 10 10.286 10"/><path d="M1.435 10.717h28"/></g></svg>';
+        }
+        function arrowRight() {
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="29.435" height="21.434"><g fill="none" stroke="#272727" stroke-miterlimit="10" stroke-width="2"><path d="M17.714.717l10.286 10-10.286 10"/><path d="M28 10.717H0"/></g></svg>';
+        }
+
         function renderPagination() {
             if (!paginationShell) return;
             paginationShell.style.display = 'block';
@@ -88,44 +99,56 @@
             let html = '<ul>';
 
             // Prev
-            const prevClass = currentPage === 1 ? ' class="prev_page_link disabled"' : ' class="prev_page_link"';
-            html += `<li${prevClass}><a class="page-link" href="#" data-page="${currentPage - 1}"><i class="ico-arrow-left">${buildArrowSvgLeft()}</i></a></li>`;
+            if (currentPage === 1) {
+                html += `<li class="prev_page_link disabled"><a class="page-link" href="#"><i class="ico-arrow-left">${arrowLeft()}</i></a></li>`;
+            } else {
+                html += `<li class="prev_page_link"><a class="page-link" href="#" data-page="${currentPage - 1}"><i class="ico-arrow-left">${arrowLeft()}</i></a></li>`;
+            }
 
             // Page numbers
-            const pages = buildPageNumbers();
-            pages.forEach(function(p) {
+            buildPageNumbers().forEach(function(p) {
                 if (p === '...') {
-                    html += '<li class="dots"><span>…</span></li>';
+                    html += '<li><span style="padding:0 6px">…</span></li>';
                 } else {
-                    const activeClass = p === currentPage ? ' class="current"' : '';
-                    html += `<li${activeClass}><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
+                    const isCurrent = p === currentPage;
+                    html += `<li class="${isCurrent ? 'current' : ''}"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
                 }
             });
 
             // Next
-            const nextClass = currentPage === totalPages ? ' class="next_page_link disabled"' : ' class="next_page_link"';
-            html += `<li${nextClass}><a class="page-link" href="#" data-page="${currentPage + 1}"><i class="ico-arrow-right">${buildArrowSvgRight()}</i></a></li>`;
+            if (currentPage === totalPages) {
+                html += `<li class="next_page_link disabled"><a class="page-link" href="#"><i class="ico-arrow-right">${arrowRight()}</i></a></li>`;
+            } else {
+                html += `<li class="next_page_link"><a class="page-link" href="#" data-page="${currentPage + 1}"><i class="ico-arrow-right">${arrowRight()}</i></a></li>`;
+            }
 
             html += '</ul>';
             paginationShell.innerHTML = html;
 
             // Attach click events
-            paginationShell.querySelectorAll('.page-link').forEach(function(link) {
+            paginationShell.querySelectorAll('a.page-link[data-page]').forEach(function(link) {
                 link.addEventListener('click', function(e) {
                     e.preventDefault();
                     const targetPage = parseInt(this.getAttribute('data-page'), 10);
                     if (!isNaN(targetPage) && targetPage >= 1 && targetPage <= totalPages && targetPage !== currentPage) {
+                        setPageInUrl(targetPage);
                         showPage(targetPage);
-                        // Scroll smoothly to product grid
-                        const sectionEl = document.querySelector('.section-items, .section-products');
-                        if (sectionEl) sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // Scroll to top of product grid
+                        const section = document.querySelector('.section-items, .section-products');
+                        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 });
             });
         }
 
-        // Initialize Page 1
-        showPage(1);
+        // Handle browser back/forward buttons
+        window.addEventListener('popstate', function(e) {
+            const page = (e.state && e.state.page) ? e.state.page : getPageFromUrl();
+            showPage(Math.min(Math.max(1, page), totalPages));
+        });
+
+        // Show the page from URL on load
+        showPage(currentPage);
     }
 
     if (document.readyState === 'loading') {
